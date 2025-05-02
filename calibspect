@@ -1,0 +1,154 @@
+"""
+Script : calibspect.py
+Description : Add DICOM tags to allow PET-like quantification in NM DICOM files.
+Author : Arnaud Dieudonné
+Date : 28/03/2025
+Version : 1.0
+
+Usage :
+    python calibspect.py -i <input_folder> -s <sensitivity> -n <number_of_detectors> -a <activity> -d <injection_date> [-sim]
+
+Arguments :
+    -i : Directory containing the NM DICOM files to process (required).
+    -s : Sensitivity in counts/s/MBq (optional).
+    -n : Number of detectors (optional, default = 1).
+    -a : Injected activity in MBq (optional).
+    -d : Injection date in YYYYMMDDHHMMSS format (optional).
+    -sim : Simulation mode (no modifications are written to the files).
+
+Example :
+    python calibspect.py -i ./dicom_files -s 0.5 -n 2 -a 150 -d 20250101083000
+"""
+
+import pydicom
+import os
+from pydicom.dataelem import DataElement
+from pydicom.sequence import Sequence
+from pydicom.dataset import Dataset
+
+import argparse
+
+if __name__ == "__main__":
+
+    # Configure the argument parser to pass parameters to the script
+    parser = argparse.ArgumentParser()
+    parser.add_argument("-i", required=True, help="Input folder to scan for NM DICOM files")  # Required input directory for DICOM files
+    parser.add_argument("-s", type=float, help="Sensitivity in counts/s/MBq", default=None, required=False)  # Sensitivity in counts per second per MBq
+    parser.add_argument("-n", type=int, help="Number of detectors n=1 if sensitivity is global", default=1, required=False)  # Number of detectors (optional)
+    parser.add_argument("-a", type=float, help="Activity in MBq", default=None, required=False)  # Injected activity (optional)
+    parser.add_argument("-d", help="Injection date YYYYMMDDHHMMSS", default=None, required=False)  # Injection date (optional)
+    parser.add_argument("-sim", help="Simulation mode", action="store_true", default=False, required=False)  # Simulation mode (no changes written to files)
+    
+    args = parser.parse_args()
+
+    S = args.s
+    N = args.n
+    A = args.a
+    D = args.d
+
+    nothing_to_do = False
+    if(S==None and A==None and D==None):
+        nothing_to_do = True
+
+    # Recursively traverse the specified directory
+    for root, dirs, files in os.walk(args.i):
+        for file in files:
+            # Check if the file has a .dcm extension and is not a temporary macOS file
+            if file.endswith(".dcm") and not file.startswith("._"):
+
+                file_path = os.path.join(root, file)  # Full file path
+                dcm = pydicom.dcmread(file_path)  # Read the DICOM file
+
+                # Check if the DICOM file is of type "NM"
+                if dcm.Modality == "NM":
+                    print()
+                    if args.sim: 
+                        print("*****************Simulation mode*****************")
+                    else: 
+                        print("*************************************************")
+                    
+                    print("DICOM NM: ", file_path)  # Display the processed file path
+
+                    # Retrieve the number of frames per rotation
+                    number_of_frames_in_rotation = dcm[0x54, 0x52][0].NumberOfFramesInRotation
+                    print("Number of frames in rotation: ", number_of_frames_in_rotation)
+                    # Actual frame duration in seconds
+                    actual_frame_duration = dcm[0x54, 0x52][0].ActualFrameDuration / 1000
+                    print("Frame duration: ", actual_frame_duration, "s")
+
+                    # Calculate the voxel volume in mm³
+                    volume_of_voxels = (
+                        dcm[0x28, 0x30].value[0] *  # Pixel size in X
+                        dcm[0x28, 0x30].value[1] *  # Pixel size in Y
+                        dcm[0x18, 0x88].value       # Slice thickness
+                    )
+                    print("Volume of voxels: ", volume_of_voxels, " mm³")
+
+                    # Retrieve the existing rescale slope if it exists
+                    if (0x28, 0x1053) in dcm:
+                        print("Rescale slope: ", dcm[0x28, 0x1053].value)
+                        print("Voxel data units: ", dcm[0x57, 0x1003].value)
+                    else:
+                        print("Rescale slope found.")
+
+                    # Calculate the new rescale slope
+                    if not S == None: 
+                        rescale_slope = 1e9 / (S * N * actual_frame_duration * number_of_frames_in_rotation * volume_of_voxels)
+                        print("New rescale slope: ", rescale_slope)
+
+                        # Update the rescale slope in the DICOM metadata
+                        dcm[0x28, 0x1053] = DataElement(0x00281053, 'DS', rescale_slope)
+                        # Set the unit of measurement to "BQML" (Becquerel per milliliter)
+                        dcm[0x57, 0x1003] = DataElement(0x00571003, 'LO', "BQML")
+                    
+                    existing_radiopharmaceutical=None
+
+                    if (0x54, 0x16) in dcm:
+                        existing_sequence = dcm[0x54, 0x16].value
+                        if len(existing_sequence) > 0:
+                            existing_radiopharmaceutical = existing_sequence[0]
+                            if hasattr(existing_radiopharmaceutical, "RadiopharmaceuticalStartDateTime"):
+                                print("RadiopharmaceuticalStartDateTime: ", existing_radiopharmaceutical.RadiopharmaceuticalStartDateTime)
+                            else:
+                                print("RadiopharmaceuticalStartDateTime not found.")
+                            
+                            if hasattr(existing_radiopharmaceutical, "RadionuclideTotalDose"):
+                                print("RadionuclideTotalDose: ", existing_radiopharmaceutical.RadionuclideTotalDose,"MBq")
+                            else:
+                                print("RadionuclideTotalDose not found.")
+                        else:
+                            print("Radiopharmaceutical information sequence is empty.")
+                    else:
+                        print("No Radiopharmaceutical information found.")
+
+
+                    if not D == None or not A == None:
+                        # Create a dataset for radiopharmaceutical information
+                        if existing_radiopharmaceutical==None:
+                            radiopharmaceutical_dataset = dcm[0x54, 0x16].value
+                        else:
+                            radiopharmaceutical_dataset = existing_radiopharmaceutical
+                        if not D == None: 
+                            radiopharmaceutical_dataset.RadiopharmaceuticalStartDateTime = D  # Injection date
+                            print("New RadiopharmaceuticalStartDateTime: ", D)
+                        if not A == None: 
+                            radiopharmaceutical_dataset.RadionuclideTotalDose = A  # Injected activity
+                            print("New RadionuclideTotalDose: ", A,"MBq")
+                        # Add this dataset to a sequence
+                        radiopharmaceutical_sequence = Sequence([radiopharmaceutical_dataset])
+                        dcm[0x54, 0x16] = DataElement(0x00540016, 'SQ', radiopharmaceutical_sequence)
+
+                    # Append "BQML" to the Series Description if it exists
+                    if "SeriesDescription" in dcm and "BQML" not in dcm.SeriesDescription:
+                        dcm.SeriesDescription += " BQML"
+                        nothing_to_do = False
+                        print("SeriesDescription updated to: ", dcm.SeriesDescription)
+                    else:
+                        dcm.SeriesDescription = "BQML"
+
+                    # Write the modifications to the DICOM file
+                    if not args.sim and not nothing_to_do: 
+                        # Update the Storage SOP Instance UID to ensure uniqueness
+                        dcm.SOPInstanceUID = pydicom.uid.generate_uid()
+                        pydicom.write_file(file_path, dcm)
+                        print("Modifications written to file.")
