@@ -18,6 +18,7 @@ Arguments :
 Example :
     python calibspect.py -i ./dicom_files -s 0.5 -n 2 -a 150 -d 20250101083000
 
+Number of detectors
 The number of detectors (-n) should be set depending on the value of sensitivity provided through the -s argument.
 If the sensitivity is provided for the system, i.e. all detector heads, then the number of detectors should be set to 1 (-n 1).
 If the sensitivity is provided for one detector head (average sensitivity), then the number of detectors should be set to the actual number of detector heads in the system, which is usually 2 (-n 2).
