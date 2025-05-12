@@ -150,5 +150,5 @@ if __name__ == "__main__":
                     if not args.sim and not nothing_to_do: 
                         # Update the Storage SOP Instance UID to ensure uniqueness
                         dcm.SOPInstanceUID = pydicom.uid.generate_uid()
-                        pydicom.write_file(file_path, dcm)
+                        pydicom.dcmwrite(file_path, dcm)
                         print("Modifications written to file.")
