@@ -80,7 +80,7 @@ if __name__ == "__main__":
                     volume_of_voxels = (
                         dcm[0x28, 0x30].value[0] *  # Pixel size in X
                         dcm[0x28, 0x30].value[1] *  # Pixel size in Y
-                        dcm[0x18, 0x88].value       # Slice thickness
+                        abs(dcm[0x18, 0x88].value)       # Spacing between slices
                     )
                     print("Volume of voxels: ", volume_of_voxels, " mm³")
 
