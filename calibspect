@@ -2,8 +2,8 @@
 Script : calibspect.py
 Description : Add DICOM tags to allow PET-like quantification in NM DICOM files.
 Author : Arnaud Dieudonné
-Date : 28/03/2025
-Version : 1.0
+Date : 12/05/2025
+Version : 1.01
 
 Usage :
     python calibspect.py -i <input_folder> -s <sensitivity> -n <number_of_detectors> -a <activity> -d <injection_date> [-sim]
